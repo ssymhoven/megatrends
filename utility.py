@@ -12,14 +12,15 @@ output_dir = "output"
 os.makedirs(os.path.join(output_dir, "images"), exist_ok=True)
 
 mandate = {
-    'D&R Aktien': '17154631',
-    'D&R Aktien Nachhaltigkeit': '79939969',
-    'D&R Aktien Strategie': '399443'
+    'D&R Aktien': '17154503',
+    'D&R Aktien Nachhaltigkeit': '79939521',
+    'D&R Aktien Strategie': '399347'
 }
 
 query = f"""
     SELECT
         accountsegment_id,
+        account_id,
         accountsegments.name as Name, 
         reportings.report_date, 
         positions.name as 'Position Name',
@@ -41,12 +42,59 @@ query = f"""
             AND reportings.newest = 1
             AND reportings.report = 'positions'
             AND positions.asset_class = 'STOCK'
-            AND accountsegments.accountsegment_id in ({', '.join(mandate.values())})
+            AND accountsegments.account_id in ({', '.join(mandate.values())})
             AND reportings.report_date = (SELECT
                                             MAX(report_date)
                                           FROM
                                             reportings)
     """
+
+
+trades = """
+    WITH depot AS (SELECT
+        reportings.report_date, 
+        positions.isin,
+        positions.name AS position_name,
+        positions.average_entry_quote
+    FROM
+        reportings
+        JOIN accountsegments ON accountsegments.reporting_uuid = reportings.uuid
+        JOIN positions ON reportings.uuid = positions.reporting_uuid
+    WHERE
+        positions.account_segment_id = accountsegments.accountsegment_id
+        AND reportings.newest = 1
+        AND reportings.report = 'positions'
+        AND positions.asset_class = 'STOCK'
+        AND report_date > '2024-01-01'
+        AND accountsegments.account_id = '{account_id}'
+    ),
+    orders AS (SELECT
+            account_id,
+            trade_date,
+            asset_isin,
+            order_action,
+            volume_quantity,
+            price_quantity
+        FROM 
+            confirmations
+        WHERE 
+            account_id = '{account_id}'
+            AND asset_class = 'STOCK'
+            AND order_action = 'SELL_CLOSE'
+            AND valuta_date > '2024-01-01'
+    )
+    SELECT
+        trade_date as 'Trade Date',
+        position_name as 'Position Name',
+        asset_isin as 'ISIN',
+        average_entry_quote as 'AEQ',
+        order_action as 'Action',
+        volume_quantity as 'Volume',
+        price_quantity as 'Price'
+    FROM depot
+    RIGHT JOIN orders ON depot.report_date = orders.trade_date AND depot.isin = orders.asset_isin
+    ORDER BY depot.report_date;
+"""
 
 opus = OpusSource()
 
@@ -87,6 +135,12 @@ def calc_rel_performance(positions: pd.DataFrame, us: pd.DataFrame, eu: pd.DataF
     )
 
     return positions
+
+
+def get_trades(account_id: str) -> pd.DataFrame:
+    df = opus.read_sql(query=trades.format(account_id=account_id))
+    df['P&L'] = ((df['Price'] - df['AEQ']) / df['AEQ']) * 100
+    return df
 
 
 def get_stocks_data() -> pd.DataFrame:
@@ -215,6 +269,23 @@ def style_positions_with_bars(positions: pd.DataFrame, name: str) -> str:
               }))
 
     output_path = f"output/images/{name.replace(' ', '_')}_Details.png"
+    dfi.export(styled, output_path, table_conversion="selenium")
+    return output_path
+
+
+def style_trades_with_bars(trades: pd.DataFrame, name: str) -> str:
+    max_abs_value = trades['P&L'].abs().max()
+    trades.sort_values('Trade Date', ascending=False, inplace=True)
+    cm = LinearSegmentedColormap.from_list("custom_red_green", ["red", "white", "green"], N=len(trades))
+    styled = (
+        trades.style.bar(subset='P&L', cmap=cm, align=0, vmax=max_abs_value, vmin=-max_abs_value)
+        .format({
+            'AEQ': "{:,.2f}",
+            'Price': "{:,.2f}",
+            'Volume': "{:,.0f}",
+            'P&L': "{:.2f}%"
+        })).hide(axis='index')
+    output_path = f"output/images/{name.replace(' ', '_')}_Trades.png"
     dfi.export(styled, output_path, table_conversion="selenium")
     return output_path
 

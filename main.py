@@ -1,5 +1,6 @@
 from utility import get_positions, style_positions_with_bars, get_us_sector_data, get_eu_sector_data, \
-    style_index_with_bars, calc_rel_performance, calc_sector_diff, write_mail
+    style_index_with_bars, calc_rel_performance, calc_sector_diff, write_mail, mandate, get_trades, \
+    style_trades_with_bars
 
 threshold = -8
 
@@ -7,7 +8,7 @@ mail_data = {
     'files': list(),
     'positions': {},
 }
-mail = True
+mail = False
 
 
 if __name__ == '__main__':
@@ -49,6 +50,10 @@ if __name__ == '__main__':
             'SXXP Index vs. SPX Index': diff_sector_chart
         }
     })
+
+    for name, id in mandate.items():
+        trades = get_trades(account_id=id)
+        style_trades_with_bars(trades=trades, name=name)
 
     if mail:
         write_mail(data=mail_data)
