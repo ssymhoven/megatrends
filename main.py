@@ -8,7 +8,7 @@ mail_data = {
     'files': list(),
     'positions': {},
 }
-mail = False
+mail = True
 
 
 if __name__ == '__main__':

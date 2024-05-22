@@ -361,7 +361,7 @@ def write_mail(data: Dict):
                 {sector_images_html}
                 <br><br>
                 Hier sind die <b>Positionen</b> die sich in einem der jeweiligen Betrachtungszeiträume 
-                <b>mindestens 8% schlechter</b> gegebenüber dem jeweiligen Sektor entwickelt haben:<br><br>
+                <b>mindestens 8% schlechter</b> gegenüber dem jeweiligen Sektor entwickelt haben:<br><br>
                 {position_images_html}
                 <br><br>
                 Im Anhang findet Ihr für alle Fonds eine Übersicht über alle enthaltenen Positionen.
