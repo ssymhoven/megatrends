@@ -27,6 +27,7 @@ query = f"""
         positions.isin as ISIN,
         positions.bloomberg_query as Query,
         positions.average_entry_quote as AEQ,
+        positions.average_entry_xrate as AEX,
         positions.currency as Crncy,
         positions.volume as Volume,
         positions.gics_industry_sector as Sector,
@@ -55,7 +56,8 @@ trades = """
         reportings.report_date, 
         positions.isin,
         positions.name AS position_name,
-        positions.average_entry_quote
+        positions.average_entry_quote,
+        positions.average_entry_xrate
     FROM
         reportings
         JOIN accountsegments ON accountsegments.reporting_uuid = reportings.uuid
@@ -74,7 +76,8 @@ trades = """
             asset_isin,
             order_action,
             volume_quantity,
-            price_quantity
+            price_quantity,
+            xrate_quantity
         FROM 
             confirmations
         WHERE 
@@ -88,9 +91,11 @@ trades = """
         position_name as 'Position Name',
         asset_isin as 'ISIN',
         average_entry_quote as 'AEQ',
+        average_entry_xrate as 'AEX',
         order_action as 'Action',
         volume_quantity as 'Volume',
-        price_quantity as 'Price'
+        price_quantity as 'Price',
+        xrate_quantity as 'XRate'
     FROM depot
     RIGHT JOIN orders ON depot.report_date = orders.trade_date AND depot.isin = orders.asset_isin
     ORDER BY depot.report_date;
@@ -102,18 +107,11 @@ opus = OpusSource()
 def get_positions() -> pd.DataFrame:
     df = opus.read_sql(query=query)
     stocks = get_stocks_data()
+    df['AEQ'] = df['AEQ'] * df['AEX']
 
-    def combine_currencies(row):
-        if row['Crncy'] == row['Currency']:
-            return row['Crncy']
-        else:
-            return f"{row['Crncy']}/{row['Currency']}"
-
-    positions = pd.merge(df, stocks[['bloomberg_query', 'Currency', 'Last Price', '1D', '5D', '1MO', 'YTD']],
+    positions = pd.merge(df, stocks[['bloomberg_query', 'Last Price', '1D', '5D', '1MO', 'YTD']],
                          left_on='Query', right_on='bloomberg_query',
                          how='left')
-    positions['Currency'] = positions.apply(combine_currencies, axis=1)
-    positions.drop(columns=['Crncy'], inplace=True)
 
     positions.set_index(['Name', 'Position Name'], inplace=True)
     positions['% since AEQ'] = pd.to_numeric(((positions['Last Price'] - positions['AEQ']) / positions['AEQ']) * 100, errors='coerce')
@@ -139,22 +137,23 @@ def calc_rel_performance(positions: pd.DataFrame, us: pd.DataFrame, eu: pd.DataF
 
 def get_trades(account_id: str) -> pd.DataFrame:
     df = opus.read_sql(query=trades.format(account_id=account_id))
-    df['P&L'] = ((df['Price'] - df['AEQ']) / df['AEQ']) * 100
+    df['AEQ'] = df['AEQ'] * df['AEX']
+    df['Price'] = df['Price'] * df['XRate']
+    df['% since AEQ'] = ((df['Price'] - df['AEQ']) / df['AEQ']) * 100
     return df
 
 
 def get_stocks_data() -> pd.DataFrame:
     df = pd.read_excel('single-stocks.xlsx', sheet_name='Stocks', header=0)
+    df.fillna(0, inplace=True)
     df = df.rename(columns={'CURRENT_TRR_1D': '1D', 'CURRENT_TRR_5D': '5D', 'CURRENT_TRR_1MO': '1MO', 'CURRENT_TRR_YTD': 'YTD'})
-    mask = df['Currency'] == 'GBp'
-    df.loc[mask, 'Currency'] = 'GBP'
-    df.loc[mask, 'Last Price'] /= 100
     return df
 
 
 def get_us_sector_data() -> pd.DataFrame:
     df = pd.read_excel('single-stocks.xlsx', sheet_name='US Sector', header=0, index_col=0)
     df.drop('Query', inplace=True, axis=1)
+    df.fillna(0, inplace=True)
     df = df.rename(columns={'CURRENT_TRR_1D': '1D', 'CURRENT_TRR_5D': '5D', 'CURRENT_TRR_1MO': '1MO', 'CURRENT_TRR_YTD': 'YTD'})
     return df
 
@@ -162,6 +161,7 @@ def get_us_sector_data() -> pd.DataFrame:
 def get_eu_sector_data() -> pd.DataFrame:
     df = pd.read_excel('single-stocks.xlsx', sheet_name='EU Sector', header=0)
     df.drop('Query', inplace=True, axis=1)
+    df.fillna(0, inplace=True)
     df = df.rename(columns={'CURRENT_TRR_1D': '1D', 'CURRENT_TRR_5D': '5D', 'CURRENT_TRR_1MO': '1MO', 'CURRENT_TRR_YTD': 'YTD'})
 
     def calculate_weighted_trrs(group):
@@ -196,7 +196,7 @@ def calc_sector_diff(us: pd.DataFrame, eu: pd.DataFrame) -> pd.DataFrame:
 
 
 def style_positions_with_bars(positions: pd.DataFrame, name: str) -> str:
-    columns_to_show = ['Position Name', 'AEQ', 'Currency', 'Volume', 'Last Price', '% since AEQ', '1D', '5D', '1MO', 'YTD',
+    columns_to_show = ['Position Name', 'AEQ', 'Volume', 'Last Price', '% since AEQ', '1D', '5D', '1MO', 'YTD',
                        '1D vs. Sector', '5D vs. Sector', '1MO vs. Sector', 'YTD vs. Sector']
     positions = positions.copy().reset_index()[columns_to_show]
 
@@ -240,13 +240,13 @@ def style_positions_with_bars(positions: pd.DataFrame, name: str) -> str:
                      'props': [('border-left', '1px solid black')]},
                     {'selector': 'td.col0',
                      'props': [('border-left', '1px solid black')]},
-                    {'selector': 'th.col5',
+                    {'selector': 'th.col4',
                      'props': [('border-left', '1px solid black')]},
-                    {'selector': 'td.col5',
+                    {'selector': 'td.col4',
                      'props': [('border-left', '1px solid black')]},
-                    {'selector': 'th.col9',
+                    {'selector': 'th.col8',
                      'props': [('border-left', '1px solid black')]},
-                    {'selector': 'td.col9',
+                    {'selector': 'td.col8',
                      'props': [('border-left', '1px solid black')]},
                     {
                         'selector': 'th.index_name',
@@ -274,16 +274,16 @@ def style_positions_with_bars(positions: pd.DataFrame, name: str) -> str:
 
 
 def style_trades_with_bars(trades: pd.DataFrame, name: str) -> str:
-    max_abs_value = trades['P&L'].abs().max()
+    max_abs_value = trades['% since AEQ'].abs().max()
     trades.sort_values('Trade Date', ascending=False, inplace=True)
     cm = LinearSegmentedColormap.from_list("custom_red_green", ["red", "white", "green"], N=len(trades))
     styled = (
-        trades.style.bar(subset='P&L', cmap=cm, align=0, vmax=max_abs_value, vmin=-max_abs_value)
+        trades.style.bar(subset='% since AEQ', cmap=cm, align=0, vmax=max_abs_value, vmin=-max_abs_value)
         .format({
             'AEQ': "{:,.2f}",
             'Price': "{:,.2f}",
             'Volume': "{:,.0f}",
-            'P&L': "{:.2f}%"
+            '% since AEQ': "{:.2f}%"
         })).hide(axis='index')
     output_path = f"output/images/{name.replace(' ', '_')}_Trades.png"
     dfi.export(styled, output_path, table_conversion="selenium")
@@ -355,9 +355,8 @@ def write_mail(data: Dict):
           <head></head>
           <body>
             <p>Hi zusammen, <br><br>
-                die Kurse der anhängenden Charts sind vom <b>{datetime.now().strftime('%d.%m.%Y %H:%M')}</b>.<br><br>
-                Hier sind absoluten Entwicklungen der <b>Sektoren</b> für den <b>Euro Stoxx 600</b> und den <b>S&P 500</b>, 
-                sowie die Out/Underperformance des <b>Euro Stoxx 600</b> gegenüber dem <b>S&P 500</b>:<br><br>
+                hier sind absoluten Entwicklungen der <b>Sektoren</b> für den <b>Euro Stoxx 600</b> und den <b>S&P 500</b>, 
+                sowie die Out/Underperformance des <b>Euro Stoxx 600</b> gegenüber dem <b>S&P 500</b>. Alle Kurse in EUR:<br><br>
                 {sector_images_html}
                 <br><br>
                 Hier sind die <b>Positionen</b> die sich in einem der jeweiligen Betrachtungszeiträume 

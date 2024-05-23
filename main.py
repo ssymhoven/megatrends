@@ -51,9 +51,13 @@ if __name__ == '__main__':
         }
     })
 
+    if mail:
+        write_mail(data=mail_data)
+    """  
+    TODO: Fix XRate, use sector group as comparable
+    
     for name, id in mandate.items():
         trades = get_trades(account_id=id)
         style_trades_with_bars(trades=trades, name=name)
+    """
 
-    if mail:
-        write_mail(data=mail_data)
