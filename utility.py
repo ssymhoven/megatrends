@@ -1,5 +1,5 @@
 import os
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Dict
 
 import pandas as pd
@@ -196,7 +196,7 @@ def calc_sector_diff(us: pd.DataFrame, eu: pd.DataFrame) -> pd.DataFrame:
 
 
 def style_positions_with_bars(positions: pd.DataFrame, name: str) -> str:
-    columns_to_show = ['Position Name', 'AEQ', 'Volume', 'Last Price', '% since AEQ', '1D', '5D', '1MO', 'YTD',
+    columns_to_show = ['Position Name', 'Sector', 'AEQ', 'Volume', 'Last Price', '% since AEQ', '1D', '5D', '1MO', 'YTD',
                        '1D vs. Sector', '5D vs. Sector', '1MO vs. Sector', 'YTD vs. Sector']
     positions = positions.copy().reset_index()[columns_to_show]
 
@@ -240,17 +240,21 @@ def style_positions_with_bars(positions: pd.DataFrame, name: str) -> str:
                      'props': [('border-left', '1px solid black')]},
                     {'selector': 'td.col0',
                      'props': [('border-left', '1px solid black')]},
-                    {'selector': 'th.col4',
+                    {'selector': 'th.col5',
                      'props': [('border-left', '1px solid black')]},
-                    {'selector': 'td.col4',
+                    {'selector': 'td.col5',
                      'props': [('border-left', '1px solid black')]},
-                    {'selector': 'th.col8',
+                    {'selector': 'th.col9',
                      'props': [('border-left', '1px solid black')]},
-                    {'selector': 'td.col8',
+                    {'selector': 'td.col9',
                      'props': [('border-left', '1px solid black')]},
                     {
                         'selector': 'th.index_name',
                         'props': [('min-width', '250px'), ('white-space', 'nowrap')]
+                    },
+                    {
+                        'selector': 'td.col0',
+                        'props': [('min-width', '200px'), ('white-space', 'nowrap')]
                     }
               ])
               .format({
@@ -325,6 +329,21 @@ def style_index_with_bars(index: pd.DataFrame, name: str) -> str:
     return output_path
 
 
+def get_last_business_day():
+    today = datetime.now()
+
+    if today.weekday() == 0:
+        last_business_day = today - timedelta(days=3)
+    elif today.weekday() == 6:
+        last_business_day = today - timedelta(days=2)
+    else:
+        last_business_day = today - timedelta(days=1)
+
+    last_business_day_str = last_business_day.strftime('%d.%m.%Y')
+
+    return last_business_day_str
+
+
 def write_mail(data: Dict):
     outlook = win32.Dispatch('outlook.application')
     mail = outlook.CreateItem(0)
@@ -356,7 +375,8 @@ def write_mail(data: Dict):
           <body>
             <p>Hi zusammen, <br><br>
                 hier sind absoluten Entwicklungen der <b>Sektoren</b> für den <b>Euro Stoxx 600</b> und den <b>S&P 500</b>, 
-                sowie die Out/Underperformance des <b>Euro Stoxx 600</b> gegenüber dem <b>S&P 500</b>. Alle Kurse in EUR:<br><br>
+                sowie die Out/Underperformance des <b>Euro Stoxx 600</b> gegenüber dem <b>S&P 500</b>.<br><br> 
+                Alle Kurse in EUR, Kursreferenz: Letzer Preis am {get_last_business_day()}:<br><br>
                 {sector_images_html}
                 <br><br>
                 Hier sind die <b>Positionen</b> die sich in einem der jeweiligen Betrachtungszeiträume 
