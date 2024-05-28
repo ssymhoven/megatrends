@@ -199,9 +199,9 @@ def filter_positions(positions: pd.DataFrame, sector: str = None) -> (pd.DataFra
                     (row['YTD vs. Sector'] > quantiles.loc['YTD vs. Sector', '80th Quantile'])
             )
             neg_condition = (
-                    (row['5D vs. Sector'] < quantiles.loc['5D vs. Sector', '20th Quantile']) &
+                    ((row['5D vs. Sector'] < quantiles.loc['5D vs. Sector', '20th Quantile']) &
                     (row['1MO vs. Sector'] < quantiles.loc['1MO vs. Sector', '20th Quantile']) &
-                    (row['YTD vs. Sector'] < quantiles.loc['YTD vs. Sector', '20th Quantile'])
+                    (row['YTD vs. Sector'] < quantiles.loc['YTD vs. Sector', '20th Quantile'])) | (row['% since AEQ'] < -15)
             )
 
         if pos_condition:
@@ -567,7 +567,9 @@ def write_risk_mail(data: Dict):
                 <b>US</b><br>
                 {us_metrics_positions}<br><br>
                 <b>EU</b><br>
-                {eu_metrics_positions}<br><br>
+                {eu_metrics_positions},<br><br>
+                oder seit Kauf mehr als <b>15%</b> verloren haben.<br><br>
+                
                 {position_images_html}
                 <br><br>
                 Im Anhang findet Ihr für alle Fonds eine detaillierte Übersicht aller Positionen.
@@ -651,13 +653,13 @@ eu_quantiles = calculate_quantiles(eu, columns_to_analyze)
 us_metrics_positions = f"""
    5D vs. Sector < <b>{us_quantiles.loc['5D vs. Sector', '20th Quantile']}%</b><br>
    1MO vs. Sector < <b>{us_quantiles.loc['1MO vs. Sector', '20th Quantile']}%</b><br>
-   YTD vs. Sector < <b>{us_quantiles.loc['YTD vs. Sector', '20th Quantile']}%</b><br>
+   YTD vs. Sector < <b>{us_quantiles.loc['YTD vs. Sector', '20th Quantile']}%</b>
 """
 
 eu_metrics_positions = f"""
    5D vs. Sector < <b>{eu_quantiles.loc['5D vs. Sector', '20th Quantile']}%</b><br>
    1MO vs. Sector < <b>{eu_quantiles.loc['1MO vs. Sector', '20th Quantile']}%</b><br>
-   YTD vs. Sector < <b>{eu_quantiles.loc['YTD vs. Sector', '20th Quantile']}%</b><br>
+   YTD vs. Sector < <b>{eu_quantiles.loc['YTD vs. Sector', '20th Quantile']}%</b>
 """
 
 us_metrics_sector = f"""
@@ -666,7 +668,7 @@ us_metrics_sector = f"""
    YTD > <b>{us_quantiles.loc['YTD', '80th Quantile']}% </b><br>
    5D vs. Sector > <b>{us_quantiles.loc['5D vs. Sector', '80th Quantile']}% </b><br>
    1MO vs. Sector > <b>{us_quantiles.loc['1MO vs. Sector', '80th Quantile']}%</b><br>
-   YTD vs. Sector > <b>{us_quantiles.loc['YTD vs. Sector', '80th Quantile']}%</b><br>
+   YTD vs. Sector > <b>{us_quantiles.loc['YTD vs. Sector', '80th Quantile']}%</b>
 """
 
 eu_metrics_sector = f"""
@@ -675,5 +677,5 @@ eu_metrics_sector = f"""
    YTD > <b>{eu_quantiles.loc['YTD', '80th Quantile']}% </b><br>
    5D vs. Sector > <b>{eu_quantiles.loc['5D vs. Sector', '80th Quantile']}% </b><br>
    1MO vs. Sector > <b>{eu_quantiles.loc['1MO vs. Sector', '80th Quantile']}% </b><br>
-   YTD vs. Sector > <b>{eu_quantiles.loc['YTD vs. Sector', '80th Quantile']}% </b><br>
+   YTD vs. Sector > <b>{eu_quantiles.loc['YTD vs. Sector', '80th Quantile']}% </b>
 """
