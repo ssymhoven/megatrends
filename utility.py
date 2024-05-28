@@ -11,6 +11,12 @@ import dataframe_image as dfi
 output_dir = "output"
 os.makedirs(os.path.join(output_dir, "images"), exist_ok=True)
 
+mail_data = {
+    'files': list(),
+    'positions': {},
+}
+mail = True
+
 mandate = {
     'D&R Aktien': '17154503',
     'D&R Aktien Nachhaltigkeit': '79939521',
@@ -106,7 +112,6 @@ opus = OpusSource()
 
 def get_positions() -> pd.DataFrame:
     df = opus.read_sql(query=query)
-    stocks = get_stocks_data()
     df['AEQ'] = df['AEQ'] * df['AEX']
 
     positions = pd.merge(df, stocks[['bloomberg_query', 'Last Price', '1D', '5D', '1MO', 'YTD']],
@@ -118,7 +123,30 @@ def get_positions() -> pd.DataFrame:
     return positions
 
 
-def calc_rel_performance(positions: pd.DataFrame, us: pd.DataFrame, eu: pd.DataFrame) -> pd.DataFrame:
+def calc_universe_rel_performance_vs_sector(universe: pd.DataFrame, sector: pd.DataFrame) -> pd.DataFrame:
+    sector_mapping = sector.index.to_series().str.extract(r'(\d+)\s*(.*)')
+    sector_mapping.columns = ['Sector_Number', 'Cleaned_Sector']
+    sector_mapping['Full_Sector'] = sector.index
+    sector_mapping_dict = sector_mapping.set_index('Cleaned_Sector')['Full_Sector'].to_dict()
+
+    universe['Sector'] = universe['Sector'].map(sector_mapping_dict)
+
+    def calculate_difference(row, sector):
+        sector_row = sector.loc[row['Sector']]
+
+        for time_frame in ['1D', '5D', '1MO', 'YTD']:
+            row[f'{time_frame} vs. Sector'] = row[time_frame] - sector_row[time_frame]
+
+        return row
+
+    universe = universe.apply(
+        lambda row: calculate_difference(row, sector), axis=1
+    )
+
+    return universe
+
+
+def calc_position_rel_performance_vs_sector(positions: pd.DataFrame, us: pd.DataFrame, eu: pd.DataFrame) -> pd.DataFrame:
 
     def calculate_difference(row, benchmark_df):
         benchmark_row = benchmark_df.loc[row['Sector']]
@@ -135,6 +163,58 @@ def calc_rel_performance(positions: pd.DataFrame, us: pd.DataFrame, eu: pd.DataF
     return positions
 
 
+def filter_positions(positions: pd.DataFrame, sector: str = None) -> (pd.DataFrame, pd.DataFrame):
+    def get_quantiles(row):
+        if sector:
+            return us_quantiles if sector == 'US' else eu_quantiles
+        else:
+            return us_quantiles if row['Region'] == 'US' else eu_quantiles
+
+    positives = []
+    negatives = []
+
+    for _, row in positions.iterrows():
+        quantiles = get_quantiles(row)
+        if sector:
+            pos_condition = (
+                    (row['5D vs. Sector'] > quantiles.loc['5D vs. Sector', '80th Quantile']) &
+                    (row['1MO vs. Sector'] > quantiles.loc['1MO vs. Sector', '80th Quantile']) &
+                    (row['YTD vs. Sector'] > quantiles.loc['YTD vs. Sector', '80th Quantile']) &
+                    (row['5D'] > quantiles.loc['5D', '80th Quantile']) &
+                    (row['1MO'] > quantiles.loc['1MO', '80th Quantile']) &
+                    (row['YTD'] > quantiles.loc['YTD', '80th Quantile'])
+            )
+            neg_condition = (
+                    (row['5D vs. Sector'] < quantiles.loc['5D vs. Sector', '20th Quantile']) &
+                    (row['1MO vs. Sector'] < quantiles.loc['1MO vs. Sector', '20th Quantile']) &
+                    (row['YTD vs. Sector'] < quantiles.loc['YTD vs. Sector', '20th Quantile']) &
+                    (row['5D'] < quantiles.loc['5D', '20th Quantile']) &
+                    (row['1MO'] < quantiles.loc['1MO', '20th Quantile']) &
+                    (row['YTD'] < quantiles.loc['YTD', '20th Quantile'])
+            )
+        else:
+            pos_condition = (
+                    (row['5D vs. Sector'] > quantiles.loc['5D vs. Sector', '80th Quantile']) &
+                    (row['1MO vs. Sector'] > quantiles.loc['1MO vs. Sector', '80th Quantile']) &
+                    (row['YTD vs. Sector'] > quantiles.loc['YTD vs. Sector', '80th Quantile'])
+            )
+            neg_condition = (
+                    (row['5D vs. Sector'] < quantiles.loc['5D vs. Sector', '20th Quantile']) &
+                    (row['1MO vs. Sector'] < quantiles.loc['1MO vs. Sector', '20th Quantile']) &
+                    (row['YTD vs. Sector'] < quantiles.loc['YTD vs. Sector', '20th Quantile'])
+            )
+
+        if pos_condition:
+            positives.append(row)
+        if neg_condition:
+            negatives.append(row)
+
+    positive_positions = pd.DataFrame(positives)
+    negative_positions = pd.DataFrame(negatives)
+
+    return positive_positions, negative_positions
+
+
 def get_trades(account_id: str) -> pd.DataFrame:
     df = opus.read_sql(query=trades.format(account_id=account_id))
     df['AEQ'] = df['AEQ'] * df['AEX']
@@ -143,15 +223,36 @@ def get_trades(account_id: str) -> pd.DataFrame:
     return df
 
 
+def calculate_quantiles(df: pd.DataFrame, columns: list) -> pd.DataFrame:
+    quantiles = {}
+    for column in columns:
+        quantiles[column] = {
+            '20th Quantile': df[column].quantile(0.20),
+            '80th Quantile': df[column].quantile(0.80)
+        }
+    df = pd.DataFrame(quantiles).transpose()
+    df = df.apply(lambda x: round(x * 2) / 2)
+    return df
+
+
+def get_universe_data(universe: str) -> pd.DataFrame:
+    universe = pd.read_excel('stocks.xlsx', sheet_name=universe, header=0)
+    universe.fillna(0, inplace=True)
+    universe = universe.rename(
+        columns={'name': 'Name', 'gics_sector_name': 'Sector', 'CURRENT_TRR_1D': '1D',
+                 'CURRENT_TRR_5D': '5D', 'CURRENT_TRR_1MO': '1MO', 'CURRENT_TRR_YTD': 'YTD'})
+    return universe
+
+
 def get_stocks_data() -> pd.DataFrame:
-    df = pd.read_excel('single-stocks.xlsx', sheet_name='Stocks', header=0)
+    df = pd.read_excel('stocks.xlsx', sheet_name='Stocks', header=0)
     df.fillna(0, inplace=True)
     df = df.rename(columns={'CURRENT_TRR_1D': '1D', 'CURRENT_TRR_5D': '5D', 'CURRENT_TRR_1MO': '1MO', 'CURRENT_TRR_YTD': 'YTD'})
     return df
 
 
 def get_us_sector_data() -> pd.DataFrame:
-    df = pd.read_excel('single-stocks.xlsx', sheet_name='US Sector', header=0, index_col=0)
+    df = pd.read_excel('stocks.xlsx', sheet_name='US Sector', header=0, index_col=0)
     df.drop('Query', inplace=True, axis=1)
     df.fillna(0, inplace=True)
     df = df.rename(columns={'CURRENT_TRR_1D': '1D', 'CURRENT_TRR_5D': '5D', 'CURRENT_TRR_1MO': '1MO', 'CURRENT_TRR_YTD': 'YTD'})
@@ -159,7 +260,7 @@ def get_us_sector_data() -> pd.DataFrame:
 
 
 def get_eu_sector_data() -> pd.DataFrame:
-    df = pd.read_excel('single-stocks.xlsx', sheet_name='EU Sector', header=0)
+    df = pd.read_excel('stocks.xlsx', sheet_name='EU Sector', header=0)
     df.drop('Query', inplace=True, axis=1)
     df.fillna(0, inplace=True)
     df = df.rename(columns={'CURRENT_TRR_1D': '1D', 'CURRENT_TRR_5D': '5D', 'CURRENT_TRR_1MO': '1MO', 'CURRENT_TRR_YTD': 'YTD'})
@@ -195,10 +296,92 @@ def calc_sector_diff(us: pd.DataFrame, eu: pd.DataFrame) -> pd.DataFrame:
     return diff
 
 
+def style_universe_with_bars(positions: pd.DataFrame, name: str) -> str:
+
+    trr1d_max_abs_value = max(abs(positions['1D'].min().min()),
+                              abs(positions['1D'].max().max()))
+    trr5d_max_abs_value = max(abs(positions['5D'].min().min()),
+                              abs(positions['5D'].max().max()))
+    trr1mo_max_abs_value = max(abs(positions['1MO'].min().min()),
+                               abs(positions['1MO'].max().max()))
+    trr_ytd_max_abs_value = max(abs(positions['YTD'].min().min()),
+                                abs(positions['YTD'].max().max()))
+
+    rel_trr1d_max_abs_value = max(abs(positions['1D vs. Sector'].min().min()),
+                                  abs(positions['1D vs. Sector'].max().max()))
+    rel_trr5d_max_abs_value = max(abs(positions['5D vs. Sector'].min().min()),
+                                abs(positions['5D vs. Sector'].max().max()))
+    rel_trr_trr1mo_max_abs_value = max(abs(positions['1MO vs. Sector'].min().min()),
+                                abs(positions['1MO vs. Sector'].max().max()))
+    rel_trr_ytd_max_abs_value = max(abs(positions['YTD vs. Sector'].min().min()),
+                                abs(positions['YTD vs. Sector'].max().max()))
+
+    positions['Highlight'] = positions['ID'].isin(stocks['bloomberg_query'])
+    positions.set_index('ID', inplace=True)
+    positions.sort_values('YTD vs. Sector', ascending=False, inplace=True)
+
+    cm = LinearSegmentedColormap.from_list("custom_red_green", ["red", "white", "green"], N=len(positions))
+
+    def highlight_index(s):
+        return ['background-color: #D1FFBD' if val else '' for val in s]
+
+    styled = (positions.style
+              .apply(highlight_index, subset=pd.IndexSlice[positions.index[positions['Highlight']], :], axis=0)
+              .bar(subset='1D', cmap=cm, align=0, vmax=trr1d_max_abs_value, vmin=-trr1d_max_abs_value)
+              .bar(subset='5D', cmap=cm, align=0, vmax=trr5d_max_abs_value, vmin=-trr5d_max_abs_value)
+              .bar(subset='1MO', cmap=cm, align=0, vmax=trr1mo_max_abs_value, vmin=-trr1mo_max_abs_value)
+              .bar(subset='YTD', cmap=cm, align=0, vmax=trr_ytd_max_abs_value, vmin=-trr_ytd_max_abs_value)
+              .bar(subset='1D vs. Sector', cmap=cm, align=0, vmax=rel_trr1d_max_abs_value,
+                   vmin=-rel_trr1d_max_abs_value)
+              .bar(subset='5D vs. Sector', cmap=cm, align=0, vmax=rel_trr5d_max_abs_value, vmin=-rel_trr5d_max_abs_value)
+              .bar(subset='1MO vs. Sector', cmap=cm, align=0, vmax=rel_trr_trr1mo_max_abs_value, vmin=-rel_trr_trr1mo_max_abs_value)
+              .bar(subset='YTD vs. Sector', cmap=cm, align=0, vmax=rel_trr_ytd_max_abs_value, vmin=-rel_trr_ytd_max_abs_value)
+              .set_table_styles([
+                    {'selector': 'th.col0',
+                     'props': [('border-left', '1px solid black')]},
+                    {'selector': 'td.col0',
+                     'props': [('border-left', '1px solid black')]},
+                    {'selector': 'th.col2',
+                     'props': [('border-left', '1px solid black')]},
+                    {'selector': 'td.col2',
+                     'props': [('border-left', '1px solid black')]},
+                    {'selector': 'th.col6',
+                     'props': [('border-left', '1px solid black')]},
+                    {'selector': 'td.col6',
+                     'props': [('border-left', '1px solid black')]},
+                    {
+                        'selector': 'th.index_name',
+                        'props': [('min-width', '150px'), ('white-space', 'nowrap')]
+                    },
+                    {
+                        'selector': 'td.col0',
+                        'props': [('min-width', '200px'), ('white-space', 'nowrap')]
+                    },
+                    {
+                        'selector': 'td.col1',
+                        'props': [('min-width', '150px'), ('white-space', 'nowrap')]
+                    }
+              ])
+              .format({
+                    '1D': "{:.2f}%",
+                    '5D': "{:.2f}%",
+                    '1MO': "{:.2f}%",
+                    'YTD': "{:.2f}%",
+                    '1D vs. Sector': "{:.2f}%",
+                    '5D vs. Sector': "{:.2f}%",
+                    '1MO vs. Sector': "{:.2f}%",
+                    'YTD vs. Sector': "{:.2f}%",
+              })).hide(['Highlight'], axis='columns')
+
+    output_path = f"output/images/{name}.png"
+    dfi.export(styled, output_path, table_conversion="selenium", max_rows=-1)
+    return output_path
+
+
 def style_positions_with_bars(positions: pd.DataFrame, name: str) -> str:
-    columns_to_show = ['Position Name', 'Sector', 'AEQ', 'Volume', 'Last Price', '% since AEQ', '1D', '5D', '1MO', 'YTD',
+    columns_to_show = ['Sector', 'AEQ', 'Volume', 'Last Price', '% since AEQ', '1D', '5D', '1MO', 'YTD',
                        '1D vs. Sector', '5D vs. Sector', '1MO vs. Sector', 'YTD vs. Sector']
-    positions = positions.copy().reset_index()[columns_to_show]
+    positions = positions.copy()[columns_to_show]
 
     aeq_max_abs_value = max(abs(positions['% since AEQ'].min().min()),
                             abs(positions['% since AEQ'].max().max()))
@@ -221,7 +404,7 @@ def style_positions_with_bars(positions: pd.DataFrame, name: str) -> str:
                                 abs(positions['YTD vs. Sector'].max().max()))
 
     positions.sort_values('% since AEQ', ascending=False, inplace=True)
-    positions.set_index('Position Name', inplace=True)
+    positions.index.name = 'Position Name'
 
     cm = LinearSegmentedColormap.from_list("custom_red_green", ["red", "white", "green"], N=len(positions))
 
@@ -344,7 +527,7 @@ def get_last_business_day():
     return last_business_day_str
 
 
-def write_mail(data: Dict):
+def write_risk_mail(data: Dict):
     outlook = win32.Dispatch('outlook.application')
     mail = outlook.CreateItem(0)
 
@@ -379,11 +562,15 @@ def write_mail(data: Dict):
                 Alle Kurse in EUR, Kursreferenz: Letzer Preis am {get_last_business_day()}:<br><br>
                 {sector_images_html}
                 <br><br>
-                Hier sind die <b>Positionen</b> die sich in einem der jeweiligen Betrachtungszeiträume 
-                <b>mindestens 8% schlechter</b> gegenüber dem jeweiligen Sektor entwickelt haben:<br><br>
+                
+                Hier sind die <b>Positionen</b>, die sich nach folgenden Schwellenwerten schlechter als der jeweilige Sektor entwickelt haben:<br><br>
+                <b>US</b><br>
+                {us_metrics_positions}<br><br>
+                <b>EU</b><br>
+                {eu_metrics_positions}<br><br>
                 {position_images_html}
                 <br><br>
-                Im Anhang findet Ihr für alle Fonds eine Übersicht über alle enthaltenen Positionen.
+                Im Anhang findet Ihr für alle Fonds eine detaillierte Übersicht aller Positionen.
                 <br><br>
                 Liebe Grüße
             </p>
@@ -397,3 +584,96 @@ def write_mail(data: Dict):
 
     mail.Recipients.ResolveAll()
     mail.Display(True)
+
+
+def write_universe_mail(data: Dict):
+    outlook = win32.Dispatch('outlook.application')
+    mail = outlook.CreateItem(0)
+
+    mail.Subject = "Daily Reporting - Investment Universe Momentum"
+    mail.Recipients.Add("pm-aktien")
+    mail.Recipients.Add("sadettin.yildiz@donner-reuschel.de").Type = 2
+
+    def inplace_chart(image_path: str):
+        image_path = os.path.abspath(image_path)
+        attachment = mail.Attachments.Add(Source=image_path)
+        cid = os.path.basename(image_path)
+        attachment.PropertyAccessor.SetProperty("http://schemas.microsoft.com/mapi/proptag/0x3712001F", cid)
+        return cid
+
+    mail.HTMLBody = f"""
+        <html>
+          <head></head>
+          <body>
+            <p>Hi zusammen, <br><br>
+                hier ist eine Momentumanalyse aller Titel des <b>Euro Stoxx 600</b> und des <b>S&P 500</b>.
+                Alle Kurse in EUR, Kursreferenz: Letzer Preis am {get_last_business_day()}.<br><br>
+                
+                Folgende Schwellenwerte werden dabei berücksichtigt, basierend auf dem 80. Perzentil der entsprechenden Daten: <br><br>
+                <b>US</b><br>
+                {us_metrics_sector}<br><br>
+                <b>EU</b><br>
+                {eu_metrics_sector}<br><br>
+                
+                Grün hinterlegte Positionen befinden sich bereits in einem der Fonds.<br><br>
+                
+                <b>S&P 500 Universum</b><br><br>
+                 <p><img src="cid:{inplace_chart(data.get('us_positive'))}"><br></p><br><br>
+                
+                <b>STOXX Europe 600 Universum</b><br><br>
+                <p><img src="cid:{inplace_chart(data.get('eu_positive'))}"><br></p>
+                <br><br>
+                Liebe Grüße
+            </p>
+          </body>
+        </html>
+    """
+
+    mail.Recipients.ResolveAll()
+    mail.Display(True)
+
+
+stocks = get_stocks_data()
+
+us_universe = get_universe_data(universe="S&P 500")
+us_sector = get_us_sector_data()
+
+eu_universe = get_universe_data(universe="STOXX Europe 600")
+eu_sector = get_eu_sector_data()
+
+us = calc_universe_rel_performance_vs_sector(universe=us_universe, sector=us_sector)
+eu = calc_universe_rel_performance_vs_sector(universe=eu_universe, sector=eu_sector)
+
+columns_to_analyze = ['5D', '1MO', 'YTD', '5D vs. Sector', '1MO vs. Sector', 'YTD vs. Sector']
+us_quantiles = calculate_quantiles(us, columns_to_analyze)
+eu_quantiles = calculate_quantiles(eu, columns_to_analyze)
+
+us_metrics_positions = f"""
+   5D vs. Sector < <b>{us_quantiles.loc['5D vs. Sector', '20th Quantile']}%</b><br>
+   1MO vs. Sector < <b>{us_quantiles.loc['1MO vs. Sector', '20th Quantile']}%</b><br>
+   YTD vs. Sector < <b>{us_quantiles.loc['YTD vs. Sector', '20th Quantile']}%</b><br>
+"""
+
+eu_metrics_positions = f"""
+   5D vs. Sector < <b>{eu_quantiles.loc['5D vs. Sector', '20th Quantile']}%</b><br>
+   1MO vs. Sector < <b>{eu_quantiles.loc['1MO vs. Sector', '20th Quantile']}%</b><br>
+   YTD vs. Sector < <b>{eu_quantiles.loc['YTD vs. Sector', '20th Quantile']}%</b><br>
+"""
+
+us_metrics_sector = f"""
+   5D > <b>{us_quantiles.loc['5D', '80th Quantile']}% </b><br>
+   1MO > <b>{us_quantiles.loc['1MO', '80th Quantile']}% </b><br>
+   YTD > <b>{us_quantiles.loc['YTD', '80th Quantile']}% </b><br>
+   5D vs. Sector > <b>{us_quantiles.loc['5D vs. Sector', '80th Quantile']}% </b><br>
+   1MO vs. Sector > <b>{us_quantiles.loc['1MO vs. Sector', '80th Quantile']}%</b><br>
+   YTD vs. Sector > <b>{us_quantiles.loc['YTD vs. Sector', '80th Quantile']}%</b><br>
+"""
+
+eu_metrics_sector = f"""
+   5D > <b>{eu_quantiles.loc['5D', '80th Quantile']}% </b><br>
+   1MO > <b>{eu_quantiles.loc['1MO', '80th Quantile']}% </b><br>
+   YTD > <b>{eu_quantiles.loc['YTD', '80th Quantile']}% </b><br>
+   5D vs. Sector > <b>{eu_quantiles.loc['5D vs. Sector', '80th Quantile']}% </b><br>
+   1MO vs. Sector > <b>{eu_quantiles.loc['1MO vs. Sector', '80th Quantile']}% </b><br>
+   YTD vs. Sector > <b>{eu_quantiles.loc['YTD vs. Sector', '80th Quantile']}% </b><br>
+"""
