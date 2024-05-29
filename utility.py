@@ -177,31 +177,37 @@ def filter_positions(positions: pd.DataFrame, sector: str = None) -> (pd.DataFra
         quantiles = get_quantiles(row)
         if sector:
             pos_condition = (
-                    (row['5D vs. Sector'] > quantiles.loc['5D vs. Sector', '80th Quantile']) &
-                    (row['1MO vs. Sector'] > quantiles.loc['1MO vs. Sector', '80th Quantile']) &
-                    (row['YTD vs. Sector'] > quantiles.loc['YTD vs. Sector', '80th Quantile']) &
-                    (row['5D'] > quantiles.loc['5D', '80th Quantile']) &
-                    (row['1MO'] > quantiles.loc['1MO', '80th Quantile']) &
-                    (row['YTD'] > quantiles.loc['YTD', '80th Quantile'])
+                    ((row['1D vs. Sector'] > quantiles.loc['1D vs. Sector', '99th Quantile']) |
+                    (row['5D vs. Sector'] > quantiles.loc['5D vs. Sector', '99th Quantile']) |
+                    (row['1MO vs. Sector'] > quantiles.loc['1MO vs. Sector', '99th Quantile']) |
+                    (row['YTD vs. Sector'] > quantiles.loc['YTD vs. Sector', '99th Quantile'])) &
+                    ((row['1D'] > quantiles.loc['1D', '99th Quantile']) |
+                    (row['5D'] > quantiles.loc['5D', '99th Quantile']) |
+                    (row['1MO'] > quantiles.loc['1MO', '99th Quantile']) |
+                    (row['YTD'] > quantiles.loc['YTD', '99th Quantile']))
             )
             neg_condition = (
-                    (row['5D vs. Sector'] < quantiles.loc['5D vs. Sector', '20th Quantile']) &
-                    (row['1MO vs. Sector'] < quantiles.loc['1MO vs. Sector', '20th Quantile']) &
-                    (row['YTD vs. Sector'] < quantiles.loc['YTD vs. Sector', '20th Quantile']) &
-                    (row['5D'] < quantiles.loc['5D', '20th Quantile']) &
-                    (row['1MO'] < quantiles.loc['1MO', '20th Quantile']) &
-                    (row['YTD'] < quantiles.loc['YTD', '20th Quantile'])
+                    ((row['1D vs. Sector'] < quantiles.loc['1D vs. Sector', '1th Quantile']) |
+                    (row['5D vs. Sector'] < quantiles.loc['5D vs. Sector', '1th Quantile']) |
+                    (row['1MO vs. Sector'] < quantiles.loc['1MO vs. Sector', '1th Quantile']) |
+                    (row['YTD vs. Sector'] < quantiles.loc['YTD vs. Sector', '1th Quantile'])) &
+                    ((row['1D'] < quantiles.loc['1D', '1th Quantile']) |
+                    (row['5D'] < quantiles.loc['5D', '1th Quantile']) |
+                    (row['1MO'] < quantiles.loc['1MO', '1th Quantile']) |
+                    (row['YTD'] < quantiles.loc['YTD', '1th Quantile']))
             )
         else:
             pos_condition = (
-                    (row['5D vs. Sector'] > quantiles.loc['5D vs. Sector', '80th Quantile']) &
-                    (row['1MO vs. Sector'] > quantiles.loc['1MO vs. Sector', '80th Quantile']) &
-                    (row['YTD vs. Sector'] > quantiles.loc['YTD vs. Sector', '80th Quantile'])
+                    (row['1D vs. Sector'] > quantiles.loc['1D vs. Sector', '99th Quantile']) |
+                    (row['5D vs. Sector'] > quantiles.loc['5D vs. Sector', '99th Quantile']) |
+                    (row['1MO vs. Sector'] > quantiles.loc['1MO vs. Sector', '99th Quantile']) |
+                    (row['YTD vs. Sector'] > quantiles.loc['YTD vs. Sector', '99th Quantile'])
             )
             neg_condition = (
-                    ((row['5D vs. Sector'] < quantiles.loc['5D vs. Sector', '20th Quantile']) &
-                    (row['1MO vs. Sector'] < quantiles.loc['1MO vs. Sector', '20th Quantile']) &
-                    (row['YTD vs. Sector'] < quantiles.loc['YTD vs. Sector', '20th Quantile'])) | (row['% since AEQ'] < -15)
+                    ((row['1D vs. Sector'] < quantiles.loc['1D vs. Sector', '1th Quantile']) |
+                    (row['5D vs. Sector'] < quantiles.loc['5D vs. Sector', '1th Quantile']) |
+                    (row['1MO vs. Sector'] < quantiles.loc['1MO vs. Sector', '1th Quantile']) |
+                    (row['YTD vs. Sector'] < quantiles.loc['YTD vs. Sector', '1th Quantile'])) | (row['% since AEQ'] < -15)
             )
 
         if pos_condition:
@@ -227,8 +233,8 @@ def calculate_quantiles(df: pd.DataFrame, columns: list) -> pd.DataFrame:
     quantiles = {}
     for column in columns:
         quantiles[column] = {
-            '20th Quantile': df[column].quantile(0.20),
-            '80th Quantile': df[column].quantile(0.80)
+            '1th Quantile': df[column].quantile(0.01),
+            '99th Quantile': df[column].quantile(0.99)
         }
     df = pd.DataFrame(quantiles).transpose()
     df = df.apply(lambda x: round(x * 2) / 2)
@@ -564,7 +570,8 @@ def write_risk_mail(data: Dict):
                 {sector_images_html}
                 <br><br>
                 
-                Hier sind die <b>Positionen</b>, die sich nach folgenden Schwellenwerten schlechter als der jeweilige Sektor entwickelt haben:<br><br>
+                Hier sind die <b>Positionen</b>, die sich schlechter als der jeweilige Sektor entwickelt haben. 
+                Folgende Schwellenwerte werden dabei berücksichtigt, basierend auf dem <b>1. Perzentil</b> der entsprechenden Daten:<br><br>
                 <b>US</b><br>
                 {us_metrics_positions}<br><br>
                 <b>EU</b><br>
@@ -612,7 +619,7 @@ def write_universe_mail(data: Dict):
                 hier ist eine Momentumanalyse aller Titel des <b>Euro Stoxx 600</b> und des <b>S&P 500</b>.
                 Alle Kurse in EUR, Kursreferenz: Letzer Preis am {get_last_business_day()}.<br><br>
                 
-                Folgende Schwellenwerte werden dabei berücksichtigt, basierend auf dem 80. Perzentil der entsprechenden Daten: <br><br>
+                Folgende Schwellenwerte werden dabei berücksichtigt, basierend auf dem <b>99. Perzentil</b> der entsprechenden Daten: <br><br>
                 <b>US</b><br>
                 {us_metrics_sector}<br><br>
                 <b>EU</b><br>
@@ -647,36 +654,44 @@ eu_sector = get_eu_sector_data()
 us = calc_universe_rel_performance_vs_sector(universe=us_universe, sector=us_sector)
 eu = calc_universe_rel_performance_vs_sector(universe=eu_universe, sector=eu_sector)
 
-columns_to_analyze = ['5D', '1MO', 'YTD', '5D vs. Sector', '1MO vs. Sector', 'YTD vs. Sector']
+columns_to_analyze = ['1D', '5D', '1MO', 'YTD', '1D vs. Sector', '5D vs. Sector', '1MO vs. Sector', 'YTD vs. Sector']
 us_quantiles = calculate_quantiles(us, columns_to_analyze)
 eu_quantiles = calculate_quantiles(eu, columns_to_analyze)
 
 us_metrics_positions = f"""
-   5D vs. Sector < <b>{us_quantiles.loc['5D vs. Sector', '20th Quantile']}%</b><br>
-   1MO vs. Sector < <b>{us_quantiles.loc['1MO vs. Sector', '20th Quantile']}%</b><br>
-   YTD vs. Sector < <b>{us_quantiles.loc['YTD vs. Sector', '20th Quantile']}%</b>
+   1D vs. Sector < <b>{us_quantiles.loc['1D vs. Sector', '1th Quantile']}%</b>, oder<br>
+   5D vs. Sector < <b>{us_quantiles.loc['5D vs. Sector', '1th Quantile']}%</b>, oder<br>
+   1MO vs. Sector < <b>{us_quantiles.loc['1MO vs. Sector', '1th Quantile']}%</b>, oder<br>
+   YTD vs. Sector < <b>{us_quantiles.loc['YTD vs. Sector', '1th Quantile']}%</b>
 """
 
 eu_metrics_positions = f"""
-   5D vs. Sector < <b>{eu_quantiles.loc['5D vs. Sector', '20th Quantile']}%</b><br>
-   1MO vs. Sector < <b>{eu_quantiles.loc['1MO vs. Sector', '20th Quantile']}%</b><br>
-   YTD vs. Sector < <b>{eu_quantiles.loc['YTD vs. Sector', '20th Quantile']}%</b>
+   1D vs. Sector < <b>{eu_quantiles.loc['1D vs. Sector', '1th Quantile']}%</b>, oder<br>
+   5D vs. Sector < <b>{eu_quantiles.loc['5D vs. Sector', '1th Quantile']}%</b>, oder<br>
+   1MO vs. Sector < <b>{eu_quantiles.loc['1MO vs. Sector', '1th Quantile']}%</b>, oder<br>
+   YTD vs. Sector < <b>{eu_quantiles.loc['YTD vs. Sector', '1th Quantile']}%</b>
 """
 
 us_metrics_sector = f"""
-   5D > <b>{us_quantiles.loc['5D', '80th Quantile']}% </b><br>
-   1MO > <b>{us_quantiles.loc['1MO', '80th Quantile']}% </b><br>
-   YTD > <b>{us_quantiles.loc['YTD', '80th Quantile']}% </b><br>
-   5D vs. Sector > <b>{us_quantiles.loc['5D vs. Sector', '80th Quantile']}% </b><br>
-   1MO vs. Sector > <b>{us_quantiles.loc['1MO vs. Sector', '80th Quantile']}%</b><br>
-   YTD vs. Sector > <b>{us_quantiles.loc['YTD vs. Sector', '80th Quantile']}%</b>
+   1D > <b>{us_quantiles.loc['1D', '99th Quantile']}%</b>, oder <br>
+   5D > <b>{us_quantiles.loc['5D', '99th Quantile']}%</b>, oder <br>
+   1MO > <b>{us_quantiles.loc['1MO', '99th Quantile']}%</b>, oder  <br>
+   YTD > <b>{us_quantiles.loc['YTD', '99th Quantile']}%</b><br><br>
+   und<br><br>
+   1D vs. Sector > <b>{us_quantiles.loc['1D vs. Sector', '99th Quantile']}%</b>, oder<br>
+   5D vs. Sector > <b>{us_quantiles.loc['5D vs. Sector', '99th Quantile']}%</b>, oder<br>
+   1MO vs. Sector > <b>{us_quantiles.loc['1MO vs. Sector', '99th Quantile']}%</b>, oder<br>
+   YTD vs. Sector > <b>{us_quantiles.loc['YTD vs. Sector', '99th Quantile']}%</b>
 """
 
 eu_metrics_sector = f"""
-   5D > <b>{eu_quantiles.loc['5D', '80th Quantile']}% </b><br>
-   1MO > <b>{eu_quantiles.loc['1MO', '80th Quantile']}% </b><br>
-   YTD > <b>{eu_quantiles.loc['YTD', '80th Quantile']}% </b><br>
-   5D vs. Sector > <b>{eu_quantiles.loc['5D vs. Sector', '80th Quantile']}% </b><br>
-   1MO vs. Sector > <b>{eu_quantiles.loc['1MO vs. Sector', '80th Quantile']}% </b><br>
-   YTD vs. Sector > <b>{eu_quantiles.loc['YTD vs. Sector', '80th Quantile']}% </b>
+   1D > <b>{eu_quantiles.loc['1D', '99th Quantile']}%</b>, oder<br>
+   5D > <b>{eu_quantiles.loc['5D', '99th Quantile']}%</b>, oder<br>
+   1MO > <b>{eu_quantiles.loc['1MO', '99th Quantile']}%</b>, oder<br>
+   YTD > <b>{eu_quantiles.loc['YTD', '99th Quantile']}%</b><br><br>
+   und<br><br>
+   1D vs. Sector > <b>{eu_quantiles.loc['1D vs. Sector', '99th Quantile']}%</b>, oder<br>
+   5D vs. Sector > <b>{eu_quantiles.loc['5D vs. Sector', '99th Quantile']}%</b>, oder<br>
+   1MO vs. Sector > <b>{eu_quantiles.loc['1MO vs. Sector', '99th Quantile']}%</b>, oder<br>
+   YTD vs. Sector > <b>{eu_quantiles.loc['YTD vs. Sector', '99th Quantile']}%</b>
 """
