@@ -317,6 +317,7 @@ def style_universe_with_bars(positions: pd.DataFrame, name: str) -> str:
                                 abs(positions['YTD vs. Sector'].max().max()))
 
     positions['Highlight'] = positions['ID'].isin(stocks['bloomberg_query'])
+
     positions.set_index('ID', inplace=True)
     positions.sort_values('YTD vs. Sector', ascending=False, inplace=True)
 
