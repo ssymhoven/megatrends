@@ -207,7 +207,7 @@ def filter_positions(positions: pd.DataFrame, sector: str = None) -> (pd.DataFra
                     ((row['1D vs. Sector'] < quantiles.loc['1D vs. Sector', '1th Quantile']) |
                     (row['5D vs. Sector'] < quantiles.loc['5D vs. Sector', '1th Quantile']) |
                     (row['1MO vs. Sector'] < quantiles.loc['1MO vs. Sector', '1th Quantile']) |
-                    (row['YTD vs. Sector'] < quantiles.loc['YTD vs. Sector', '1th Quantile'])) | (row['% since AEQ'] < -15)
+                    (row['YTD vs. Sector'] < quantiles.loc['YTD vs. Sector', '1th Quantile'])) | (row['% since AEQ'] < -10)
             )
 
         if pos_condition:
@@ -576,7 +576,7 @@ def write_risk_mail(data: Dict):
                 {us_metrics_positions}<br><br>
                 <b>EU</b><br>
                 {eu_metrics_positions},<br><br>
-                oder seit Kauf mehr als <b>15%</b> verloren haben.<br><br>
+                oder seit Kauf mehr als <b>10%</b> verloren haben.<br><br>
                 
                 {position_images_html}
                 <br><br>
