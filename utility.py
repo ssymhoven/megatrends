@@ -20,7 +20,8 @@ mail = True
 mandate = {
     'D&R Aktien': '17154503',
     'D&R Aktien Nachhaltigkeit': '79939521',
-    'D&R Aktien Strategie': '399347'
+    'D&R Aktien Strategie': '399347',
+    'VV-Aktien Aktiv': '93695431'
 }
 
 query = f"""
