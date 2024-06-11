@@ -57,6 +57,34 @@ query = f"""
                                             reportings)
     """
 
+third_party = """
+    SELECT
+        accountsegments.name as Name, 
+        accountsegments.account_id,
+        reportings.report_date, 
+        positions.bloomberg_query as Query,
+        positions.name as 'Position Name',
+        positions.average_entry_quote as AEQ,
+        positions.volume as Volume,
+        positions.last_xrate_quantity as AEX
+    FROM
+        reportings
+            JOIN
+        accountsegments ON (accountsegments.reporting_uuid = reportings.uuid)
+            JOIN
+        positions ON (reportings.uuid = positions.reporting_uuid)
+    WHERE
+            positions.account_segment_id = accountsegments.accountsegment_id
+            AND reportings.newest = 1
+            AND reportings.report = 'positions'
+            AND positions.asset_class = 'FUND_CLASS'
+            AND positions.dr_class_level_1 = 'EQUITY'
+            AND (accountsegments.name LIKE "%VV-ESG%" OR accountsegments.name LIKE "%VV-Flex%")
+            AND reportings.report_date = (SELECT
+                                            MAX(report_date)
+                                          FROM
+                                            reportings)
+"""
 
 trades = """
     WITH depot AS (SELECT
@@ -122,6 +150,21 @@ def get_positions() -> pd.DataFrame:
     positions.set_index(['Name', 'Position Name'], inplace=True)
     positions['% since AEQ'] = pd.to_numeric(((positions['Last Price'] - positions['AEQ']) / positions['AEQ']) * 100, errors='coerce')
     return positions
+
+
+def get_third_party_products() -> pd.DataFrame:
+    df = opus.read_sql(query=third_party)
+    df['AEQ'] = df['AEQ'] * df['AEX']
+
+    df = pd.merge(df, funds[['bloomberg_query', 'Last Price', '1D', '5D', '1MO', 'YTD']],
+                  left_on='Query', right_on='bloomberg_query',
+                  how='left')
+
+    df.set_index(['Name', 'Position Name'], inplace=True)
+    df['% since AEQ'] = pd.to_numeric(((df['Last Price'] - df['AEQ']) / df['AEQ']) * 100,
+                                      errors='coerce')
+
+    return df
 
 
 def calc_universe_rel_performance_vs_sector(universe: pd.DataFrame, sector: pd.DataFrame) -> pd.DataFrame:
@@ -258,6 +301,14 @@ def get_stocks_data() -> pd.DataFrame:
     return df
 
 
+def get_funds_data() -> pd.DataFrame:
+    df = pd.read_excel('stocks.xlsx', sheet_name='Funds', header=0)
+    df.fillna(0, inplace=True)
+    df = df.rename(
+        columns={'CURRENT_TRR_1D': '1D', 'CURRENT_TRR_5D': '5D', 'CURRENT_TRR_1MO': '1MO', 'CURRENT_TRR_YTD': 'YTD'})
+    return df
+
+
 def get_us_sector_data() -> pd.DataFrame:
     df = pd.read_excel('stocks.xlsx', sheet_name='US Sector', header=0, index_col=0)
     df.drop('Query', inplace=True, axis=1)
@@ -383,6 +434,53 @@ def style_universe_with_bars(positions: pd.DataFrame, name: str) -> str:
 
     output_path = f"output/images/{name}.png"
     dfi.export(styled, output_path, table_conversion="selenium", max_rows=-1)
+    return output_path
+
+
+def style_third_party(positions: pd.DataFrame, name: str) -> str:
+    aeq_max_abs_value = max(abs(positions['% since AEQ'].min().min()),
+                            abs(positions['% since AEQ'].max().max()))
+    trr1d_max_abs_value = max(abs(positions['1D'].min().min()),
+                              abs(positions['1D'].max().max()))
+    trr5d_max_abs_value = max(abs(positions['5D'].min().min()),
+                              abs(positions['5D'].max().max()))
+    trr1mo_max_abs_value = max(abs(positions['1MO'].min().min()),
+                               abs(positions['1MO'].max().max()))
+    trr_ytd_max_abs_value = max(abs(positions['YTD'].min().min()),
+                                abs(positions['YTD'].max().max()))
+
+    output_path = f"output/images/{name}.png"
+    cm = LinearSegmentedColormap.from_list("custom_red_green", ["red", "white", "green"], N=len(positions))
+    positions.sort_values('% since AEQ', ascending=False, inplace=True)
+
+    styled = ((((positions.style.bar(subset='% since AEQ', cmap=cm, align=0, vmax=aeq_max_abs_value, vmin=-aeq_max_abs_value)
+          .bar(subset='1D', cmap=cm, align=0, vmax=trr1d_max_abs_value, vmin=-trr1d_max_abs_value))
+          .bar(subset='5D', cmap=cm, align=0, vmax=trr5d_max_abs_value, vmin=-trr5d_max_abs_value))
+          .bar(subset='1MO', cmap=cm, align=0, vmax=trr1mo_max_abs_value, vmin=-trr1mo_max_abs_value))
+          .bar(subset='YTD', cmap=cm, align=0, vmax=trr_ytd_max_abs_value, vmin=-trr_ytd_max_abs_value)
+          .set_table_styles([
+                {'selector': 'th.col0',
+                 'props': [('border-left', '1px solid black')]},
+                {'selector': 'td.col0',
+                 'props': [('border-left', '1px solid black')]},
+                {'selector': 'th.col4',
+                 'props': [('border-left', '1px solid black')]},
+                {'selector': 'td.col4',
+                 'props': [('border-left', '1px solid black')]},
+                {
+                    'selector': 'th.index_name',
+                    'props': [('min-width', '250px'), ('white-space', 'nowrap')]
+                }
+          ]).format({
+                'AEQ': "{:,.2f}",
+                'Last Price': "{:,.2f}",
+                '% since AEQ': "{:.2f}%",
+                '1D': "{:.2f}%",
+                '5D': "{:.2f}%",
+                '1MO': "{:.2f}%",
+                'YTD': "{:.2f}%"
+          }))
+    dfi.export(styled, output_path, table_conversion="selenium")
     return output_path
 
 
@@ -535,12 +633,29 @@ def get_last_business_day():
     return last_business_day_str
 
 
+def group_funds(positions: pd.DataFrame) -> pd.DataFrame:
+    positions.reset_index(inplace=True)
+
+    positions = positions.groupby('Position Name').agg({
+        '1D': 'first',
+        '5D': 'first',
+        '1MO': 'first',
+        'YTD': 'first',
+        'Last Price': 'first',
+        'AEQ': 'mean',
+        '% since AEQ': 'mean'
+    })
+
+    return positions
+
+
 def write_risk_mail(data: Dict):
     outlook = win32.Dispatch('outlook.application')
     mail = outlook.CreateItem(0)
 
     mail.Subject = "Daily Reporting - Risikomanagement"
     mail.Recipients.Add("pm-aktien")
+    mail.Recipients.Add("amstatuser@donner-reuschel.lu")
     mail.Recipients.Add("sadettin.yildiz@donner-reuschel.de").Type = 2
 
     def inplace_chart(image_path: str):
@@ -603,6 +718,7 @@ def write_universe_mail(data: Dict):
 
     mail.Subject = "Daily Reporting - Investment Universe Momentum"
     mail.Recipients.Add("pm-aktien")
+    mail.Recipients.Add("amstatuser@donner-reuschel.lu")
     mail.Recipients.Add("sadettin.yildiz@donner-reuschel.de").Type = 2
 
     def inplace_chart(image_path: str):
@@ -644,7 +760,51 @@ def write_universe_mail(data: Dict):
     mail.Display(True)
 
 
+def write_third_party_mail(data: Dict):
+    outlook = win32.Dispatch('outlook.application')
+    mail = outlook.CreateItem(0)
+
+    mail.Subject = "Daily Reporting - VV Drittprodukte"
+    mail.Recipients.Add("pm-aktien")
+    mail.Recipients.Add("amstatuser@donner-reuschel.lu")
+    mail.Recipients.Add("sadettin.yildiz@donner-reuschel.de").Type = 2
+
+    def inplace_chart(image_path: str):
+        image_path = os.path.abspath(image_path)
+        attachment = mail.Attachments.Add(Source=image_path)
+        cid = os.path.basename(image_path)
+        attachment.PropertyAccessor.SetProperty("http://schemas.microsoft.com/mapi/proptag/0x3712001F", cid)
+        return cid
+
+    mail.HTMLBody = f"""
+        <html>
+          <head></head>
+          <body>
+            <p>Hi zusammen, <br><br>
+                
+                folgende Drittprodukte aus der VV-Flex und VV-ESG haben sich wie folgt entwickelt. Der durchschnittliche 
+                Einstiegskurs ist über alle Varianten gemittelt.<br><br>
+                
+                Alle Kurse in EUR, Kursreferenz: Letzer Preis am {get_last_business_day()}.<br><br>
+
+                <b>VV-Flex</b><br><br>
+                 <p><img src="cid:{inplace_chart(data.get('flex'))}"><br></p><br><br>
+
+                <b>VV-ESG</b><br><br>
+                <p><img src="cid:{inplace_chart(data.get('esg'))}"><br></p>
+                <br><br>
+                Liebe Grüße
+            </p>
+          </body>
+        </html>
+    """
+
+    mail.Recipients.ResolveAll()
+    mail.Display(True)
+
+
 stocks = get_stocks_data()
+funds = get_funds_data()
 
 us_universe = get_universe_data(universe="S&P 500")
 us_sector = get_us_sector_data()
