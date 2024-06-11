@@ -656,6 +656,7 @@ def write_risk_mail(data: Dict):
     mail.Subject = "Daily Reporting - Risikomanagement"
     mail.Recipients.Add("pm-aktien")
     mail.Recipients.Add("amstatuser@donner-reuschel.lu")
+    mail.Recipients.Add("jan.sandermann@donner-reuschel.de")
     mail.Recipients.Add("sadettin.yildiz@donner-reuschel.de").Type = 2
 
     def inplace_chart(image_path: str):
@@ -719,6 +720,7 @@ def write_universe_mail(data: Dict):
     mail.Subject = "Daily Reporting - Investment Universe Momentum"
     mail.Recipients.Add("pm-aktien")
     mail.Recipients.Add("amstatuser@donner-reuschel.lu")
+    mail.Recipients.Add("jan.sandermann@donner-reuschel.de")
     mail.Recipients.Add("sadettin.yildiz@donner-reuschel.de").Type = 2
 
     def inplace_chart(image_path: str):
@@ -767,6 +769,7 @@ def write_third_party_mail(data: Dict):
     mail.Subject = "Daily Reporting - VV Drittprodukte"
     mail.Recipients.Add("pm-aktien")
     mail.Recipients.Add("amstatuser@donner-reuschel.lu")
+    mail.Recipients.Add("jan.sandermann@donner-reuschel.de")
     mail.Recipients.Add("sadettin.yildiz@donner-reuschel.de").Type = 2
 
     def inplace_chart(image_path: str):
