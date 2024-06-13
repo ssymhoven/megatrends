@@ -683,7 +683,7 @@ def write_risk_mail(data: Dict):
             <p>Hi zusammen, <br><br>
                 hier sind absoluten Entwicklungen der <b>Sektoren</b> für den <b>Euro Stoxx 600</b> und den <b>S&P 500</b>, 
                 sowie die Out/Underperformance des <b>Euro Stoxx 600</b> gegenüber dem <b>S&P 500</b>.<br><br> 
-                Alle Kurse in EUR, Kursreferenz: Letzer Preis am {get_last_business_day()}:<br><br>
+                Alle Kurse in EUR, Kursreferenz: Letzter Preis am {get_last_business_day()}:<br><br>
                 {sector_images_html}
                 <br><br>
                 
@@ -736,7 +736,7 @@ def write_universe_mail(data: Dict):
           <body>
             <p>Hi zusammen, <br><br>
                 hier ist eine Momentumanalyse aller Titel des <b>Euro Stoxx 600</b> und des <b>S&P 500</b>.
-                Alle Kurse in EUR, Kursreferenz: Letzer Preis am {get_last_business_day()}.<br><br>
+                Alle Kurse in EUR, Kursreferenz: Letzter Preis am {get_last_business_day()}.<br><br>
                 
                 Folgende Schwellenwerte werden dabei berücksichtigt, basierend auf dem <b>99. Perzentil</b> der entsprechenden Daten: <br><br>
                 <b>US</b><br>
@@ -788,7 +788,7 @@ def write_third_party_mail(data: Dict):
                 folgende Drittprodukte aus der VV-Flex und VV-ESG haben sich wie folgt entwickelt. Der durchschnittliche 
                 Einstiegskurs ist über alle Varianten gemittelt.<br><br>
                 
-                Alle Kurse in EUR, Kursreferenz: Letzer Preis am {get_last_business_day()}.<br><br>
+                Alle Kurse in EUR, Kursreferenz: Letzter Preis am {get_last_business_day()}.<br><br>
 
                 <b>VV-Flex</b><br><br>
                  <p><img src="cid:{inplace_chart(data.get('flex'))}"><br></p><br><br>
