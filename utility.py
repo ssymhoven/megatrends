@@ -512,7 +512,7 @@ def style_positions_with_bars(positions: pd.DataFrame, name: str) -> str:
     positions.sort_values('% since AEQ', ascending=False, inplace=True)
     positions.index.name = 'Position Name'
 
-    cm = LinearSegmentedColormap.from_list("custom_red_green", ["red", "white", "green"], N=len(positions))
+    cm = LinearSegmentedColormap.from_list("custom_red_green", ["red", "white", "green"], N=len(positions) if len(positions) != 0 else 3)
 
     styled = (positions.style.bar(subset='% since AEQ', cmap=cm, align=0, vmax=aeq_max_abs_value, vmin=-aeq_max_abs_value)
               .bar(subset='1D', cmap=cm, align=0, vmax=trr1d_max_abs_value, vmin=-trr1d_max_abs_value)
