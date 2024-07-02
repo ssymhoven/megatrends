@@ -21,7 +21,7 @@ mandate = {
     'D&R Aktien': '17154503',
     'D&R Aktien Nachhaltigkeit': '79939521',
     'D&R Aktien Strategie': '399347',
-    'D&R Premium Select Aktien': '93695431',
+    'D&R Premium Select': '93695431'
 }
 
 query = f"""
@@ -36,6 +36,7 @@ query = f"""
         positions.average_entry_quote as AEQ,
         positions.average_entry_xrate as AEX,
         positions.currency as Crncy,
+        positions.last_quote,
         positions.volume as Volume,
         positions.gics_industry_sector as Sector,
         positions.dr_class_level_2 as 'Region'
@@ -78,7 +79,7 @@ third_party = """
             AND reportings.newest = 1
             AND reportings.report = 'positions'
             AND positions.asset_class in ('FUND_CLASS', 'CERTIFICATE')
-            AND (accountsegments.name LIKE "%VV-ESG%" OR accountsegments.name LIKE "%VV-Flex%" OR accountsegments.name LIKE "%Strategie - Select")
+            AND (accountsegments.name LIKE "%VV-ESG%" OR accountsegments.name LIKE "%VV-Flex%" OR accountsegments.name LIKE "%Strategie - Select" OR accountsegments.name LIKE "%Premium Select%")
             AND reportings.report_date = (SELECT
                                             MAX(report_date)
                                           FROM
@@ -142,9 +143,18 @@ def get_positions() -> pd.DataFrame:
     df = opus.read_sql(query=query)
     df['AEQ'] = df['AEQ'] * df['AEX']
 
-    positions = pd.merge(df, stocks[['bloomberg_query', 'Last Price', '1D', '5D', '1MO', 'YTD']],
-                         left_on='Query', right_on='bloomberg_query',
+    positions = pd.merge(df, stocks[['bloomberg_query', 'isin', 'Last Price', '1D', '5D', '1MO', 'YTD']],
+                         left_on='ISIN', right_on='isin',
                          how='left')
+
+    # Use DWH Last Quote if BBG Last Price not available
+    for col in ['1D', '5D', '1MO', 'YTD']:
+        positions[col] = pd.to_numeric(positions[col], errors='coerce').fillna(0)
+
+    positions['Last Price'] = positions.apply(
+        lambda row: row['last_quote'] if row['Last Price'] == 0 else row['Last Price'],
+        axis=1
+    )
 
     positions.set_index(['Name', 'Position Name'], inplace=True)
     positions['% since AEQ'] = pd.to_numeric(((positions['Last Price'] - positions['AEQ']) / positions['AEQ']) * 100, errors='coerce')
@@ -190,6 +200,7 @@ def calc_universe_rel_performance_vs_sector(universe: pd.DataFrame, sector: pd.D
 
 
 def calc_position_rel_performance_vs_sector(positions: pd.DataFrame, us: pd.DataFrame, eu: pd.DataFrame) -> pd.DataFrame:
+    positions.loc[positions['ISIN'] == 'CH0038863350', 'Region'] = 'EU'
 
     def calculate_difference(row, benchmark_df):
         benchmark_row = benchmark_df.loc[row['Sector']]
@@ -250,7 +261,7 @@ def filter_positions(positions: pd.DataFrame, sector: str = None) -> (pd.DataFra
                     ((row['1D vs. Sector'] < quantiles.loc['1D vs. Sector', '1th Quantile']) |
                     (row['5D vs. Sector'] < quantiles.loc['5D vs. Sector', '1th Quantile']) |
                     (row['1MO vs. Sector'] < quantiles.loc['1MO vs. Sector', '1th Quantile']) |
-                    (row['YTD vs. Sector'] < quantiles.loc['YTD vs. Sector', '1th Quantile'])) | (row['% since AEQ'] < -10)
+                    (row['YTD vs. Sector'] < quantiles.loc['YTD vs. Sector', '1th Quantile'])) | (row['% since AEQ'] < -5)
             )
 
         if pos_condition:
@@ -511,7 +522,7 @@ def style_positions_with_bars(positions: pd.DataFrame, name: str) -> str:
     positions.sort_values('% since AEQ', ascending=False, inplace=True)
     positions.index.name = 'Position Name'
 
-    cm = LinearSegmentedColormap.from_list("custom_red_green", ["red", "white", "green"], N=len(positions) if len(positions) != 0 else 3)
+    cm = LinearSegmentedColormap.from_list("custom_red_green", ["red", "white", "green"], N=len(positions) if len(positions) > 3 else 3)
 
     styled = (positions.style.bar(subset='% since AEQ', cmap=cm, align=0, vmax=aeq_max_abs_value, vmin=-aeq_max_abs_value)
               .bar(subset='1D', cmap=cm, align=0, vmax=trr1d_max_abs_value, vmin=-trr1d_max_abs_value)
@@ -692,7 +703,7 @@ def write_risk_mail(data: Dict):
                 {us_metrics_positions}<br><br>
                 <b>EU</b><br>
                 {eu_metrics_positions},<br><br>
-                oder seit Kauf mehr als <b>10%</b> verloren haben.<br><br>
+                oder seit Kauf mehr als <b>5%</b> verloren haben.<br><br>
                 
                 {position_images_html}
                 <br><br>
@@ -797,7 +808,10 @@ def write_third_party_mail(data: Dict):
                 <p><img src="cid:{inplace_chart(data.get('esg'))}"><br></p>
                 
                 <b>D&R Strategie - Select</b><br><br>
-                 <p><img src="cid:{inplace_chart(data.get('strategie'))}"><br></p><br><br>
+                 <p><img src="cid:{inplace_chart(data.get('strategie-select'))}"><br></p><br><br>
+                 
+                 <b>D&R Premium Select</b><br><br>
+                 <p><img src="cid:{inplace_chart(data.get('premium-select'))}"><br></p><br><br>
                  
                 <br><br>
                 Liebe Grüße
