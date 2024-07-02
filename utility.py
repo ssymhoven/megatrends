@@ -21,7 +21,7 @@ mandate = {
     'D&R Aktien': '17154503',
     'D&R Aktien Nachhaltigkeit': '79939521',
     'D&R Aktien Strategie': '399347',
-    'VV-Aktien Aktiv': '93695431'
+    'D&R Premium Select Aktien': '93695431',
 }
 
 query = f"""
@@ -77,9 +77,8 @@ third_party = """
             positions.account_segment_id = accountsegments.accountsegment_id
             AND reportings.newest = 1
             AND reportings.report = 'positions'
-            AND positions.asset_class = 'FUND_CLASS'
-            AND positions.dr_class_level_1 = 'EQUITY'
-            AND (accountsegments.name LIKE "%VV-ESG%" OR accountsegments.name LIKE "%VV-Flex%")
+            AND positions.asset_class in ('FUND_CLASS', 'CERTIFICATE')
+            AND (accountsegments.name LIKE "%VV-ESG%" OR accountsegments.name LIKE "%VV-Flex%" OR accountsegments.name LIKE "%Strategie - Select")
             AND reportings.report_date = (SELECT
                                             MAX(report_date)
                                           FROM
@@ -766,8 +765,9 @@ def write_third_party_mail(data: Dict):
     outlook = win32.Dispatch('outlook.application')
     mail = outlook.CreateItem(0)
 
-    mail.Subject = "Daily Reporting - VV Drittprodukte"
+    mail.Subject = "Daily Reporting - Drittprodukte"
     mail.Recipients.Add("pm-aktien")
+    mail.Recipients.Add("pm-zinsen")
     mail.Recipients.Add("amstatuser@donner-reuschel.lu")
     mail.Recipients.Add("jan.sandermann@donner-reuschel.de")
     mail.Recipients.Add("sadettin.yildiz@donner-reuschel.de").Type = 2
@@ -785,7 +785,7 @@ def write_third_party_mail(data: Dict):
           <body>
             <p>Hi zusammen, <br><br>
                 
-                folgende Drittprodukte aus der VV-Flex und VV-ESG haben sich wie folgt entwickelt. Der durchschnittliche 
+                folgende Drittprodukte aus der VV-Flex und VV-ESG, sowie dem D&R Strategie - Select haben sich wie folgt entwickelt. Der durchschnittliche 
                 Einstiegskurs ist über alle Varianten gemittelt.<br><br>
                 
                 Alle Kurse in EUR, Kursreferenz: Letzter Preis am {get_last_business_day()}.<br><br>
@@ -795,6 +795,10 @@ def write_third_party_mail(data: Dict):
 
                 <b>VV-ESG</b><br><br>
                 <p><img src="cid:{inplace_chart(data.get('esg'))}"><br></p>
+                
+                <b>D&R Strategie - Select</b><br><br>
+                 <p><img src="cid:{inplace_chart(data.get('strategie'))}"><br></p><br><br>
+                 
                 <br><br>
                 Liebe Grüße
             </p>
