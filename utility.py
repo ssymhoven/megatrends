@@ -16,7 +16,8 @@ def get_megatrends() -> pd.DataFrame:
     trends = pd.read_excel('megatrends.xlsx', sheet_name='Themes', header=0, index_col=0)
     trends = trends.rename(
         columns={'SECURITY_NAME': 'Name', 'CHG_PCT_YTD': 'YTD', 'CHG_PCT_5D': '5D',
-                 'CHG_PCT_1M': '1MO', 'CHG_PCT_3M': '3MO', 'CHG_PCT_6M': '6MO', 'CHG_PCT_HIGH_52WEEK': 'Δ 52W High'})
+                 'CHG_PCT_1M': '1MO', 'CHG_PCT_3M': '3MO', 'CHG_PCT_6M': '6MO', 'CHG_PCT_HIGH_52WEEK': 'Δ 52W High',
+                 'CHG_PCT_MOV_AVG_200D': 'Δ 200D MVAG'})
     return trends
 
 
@@ -33,8 +34,9 @@ def style_trends_with_bars(positions: pd.DataFrame, name: str) -> str:
                             abs(positions['YTD'].max().max()))
     delta_max_abs_value = max(abs(positions['Δ 52W High'].min().min()),
                               abs(positions['Δ 52W High'].max().max()))
+    mvag_max_abs_value = max(abs(positions['Δ 200D MVAG'].min().min()),
+                              abs(positions['Δ 200D MVAG'].max().max()))
 
-    #positions.drop('Description', inplace=True, axis=1)
     positions.sort_values('YTD', ascending=False, inplace=True)
 
     cm = LinearSegmentedColormap.from_list("custom_red_green", ["red", "white", "green"], N=len(positions))
@@ -46,6 +48,7 @@ def style_trends_with_bars(positions: pd.DataFrame, name: str) -> str:
     .bar(subset='6MO', cmap=cm, align=0, vmax=mo6_max_abs_value, vmin=-mo6_max_abs_value)
     .bar(subset='YTD', cmap=cm, align=0, vmax=ytd_max_abs_value, vmin=-ytd_max_abs_value)
     .bar(subset='Δ 52W High', cmap=cm, align=0, vmax=delta_max_abs_value, vmin=-delta_max_abs_value)
+    .bar(subset='Δ 200D MVAG', cmap=cm, align=0, vmax=mvag_max_abs_value, vmin=-mvag_max_abs_value)
     .set_table_styles([
         {'selector': 'th.col0',
          'props': [('border-left', '1px solid black')]},
@@ -75,6 +78,7 @@ def style_trends_with_bars(positions: pd.DataFrame, name: str) -> str:
         '6MO': "{:.2f}%",
         'YTD': "{:.2f}%",
         'Δ 52W High': "{:.2f}%",
+        'Δ 200D MVAG': "{:.2f}%",
     }))
 
     output_path = f"output/images/{name}.png"
