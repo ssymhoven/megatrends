@@ -3,8 +3,11 @@ from typing import Dict
 
 import pandas as pd
 import win32com.client as win32
+from matplotlib import pyplot as plt
 from matplotlib.colors import LinearSegmentedColormap
 import dataframe_image as dfi
+import seaborn as sns
+
 
 output_dir = "output"
 os.makedirs(os.path.join(output_dir, "images"), exist_ok=True)
@@ -13,12 +16,34 @@ mail = True
 
 
 def get_megatrends() -> pd.DataFrame:
-    trends = pd.read_excel('megatrends.xlsx', sheet_name='Themes', header=0, index_col=0)
+    trends = pd.read_excel('megatrends.xlsm', sheet_name='Themes', header=0, index_col=0)
     trends = trends.rename(
         columns={'SECURITY_NAME': 'Name', 'CHG_PCT_YTD': 'YTD', 'CHG_PCT_5D': '5D',
-                 'CHG_PCT_1M': '1MO', 'CHG_PCT_3M': '3MO', 'CHG_PCT_6M': '6MO', 'CHG_PCT_HIGH_52WEEK': 'Δ 52W High',
-                 'CHG_PCT_MOV_AVG_200D': 'Δ 200D MVAG'})
+                 'CHG_PCT_1M': '1MO', 'CHG_PCT_3M': '3MO', 'CHG_PCT_6M': '6MO'}
+    )
     return trends
+
+
+def get_top_performers() -> pd.DataFrame:
+    top_performer = pd.read_excel('megatrends.xlsm', sheet_name='TopPerformers', header=0)
+    top_performer = top_performer.dropna()
+    return top_performer
+
+
+def style_mean_with_bars(positions: pd.DataFrame, name: str) -> str:
+
+    max_val = positions['% Change'].abs().max()
+    cm = LinearSegmentedColormap.from_list("custom_red_green", ["red", "white", "green"], N=len(positions))
+
+    styled = (positions.style
+    .bar(subset='% Change', cmap=cm, align=0, vmax=max_val, vmin=-max_val)
+    .format({
+        '% Change': "{:.2f}%",
+    })).hide(axis="index")
+
+    output_path = f"output/images/{name}.png"
+    dfi.export(styled, output_path, table_conversion="selenium", max_rows=-1)
+    return output_path
 
 
 def style_trends_with_bars(positions: pd.DataFrame, name: str) -> str:
@@ -32,12 +57,8 @@ def style_trends_with_bars(positions: pd.DataFrame, name: str) -> str:
                             abs(positions['6MO'].max().max()))
     ytd_max_abs_value = max(abs(positions['YTD'].min().min()),
                             abs(positions['YTD'].max().max()))
-    delta_max_abs_value = max(abs(positions['Δ 52W High'].min().min()),
-                              abs(positions['Δ 52W High'].max().max()))
-    mvag_max_abs_value = max(abs(positions['Δ 200D MVAG'].min().min()),
-                              abs(positions['Δ 200D MVAG'].max().max()))
 
-    positions.sort_values('YTD', ascending=False, inplace=True)
+    positions = positions.sort_values('6MO', ascending=False)
 
     cm = LinearSegmentedColormap.from_list("custom_red_green", ["red", "white", "green"], N=len(positions))
 
@@ -47,8 +68,6 @@ def style_trends_with_bars(positions: pd.DataFrame, name: str) -> str:
     .bar(subset='3MO', cmap=cm, align=0, vmax=mo3_max_abs_value, vmin=-mo3_max_abs_value)
     .bar(subset='6MO', cmap=cm, align=0, vmax=mo6_max_abs_value, vmin=-mo6_max_abs_value)
     .bar(subset='YTD', cmap=cm, align=0, vmax=ytd_max_abs_value, vmin=-ytd_max_abs_value)
-    .bar(subset='Δ 52W High', cmap=cm, align=0, vmax=delta_max_abs_value, vmin=-delta_max_abs_value)
-    .bar(subset='Δ 200D MVAG', cmap=cm, align=0, vmax=mvag_max_abs_value, vmin=-mvag_max_abs_value)
     .set_table_styles([
         {'selector': 'th.col0',
          'props': [('border-left', '1px solid black')]},
@@ -76,13 +95,23 @@ def style_trends_with_bars(positions: pd.DataFrame, name: str) -> str:
         '1MO': "{:.2f}%",
         '3MO': "{:.2f}%",
         '6MO': "{:.2f}%",
-        'YTD': "{:.2f}%",
-        'Δ 52W High': "{:.2f}%",
-        'Δ 200D MVAG': "{:.2f}%",
+        'YTD': "{:.2f}%"
     }))
 
     output_path = f"output/images/{name}.png"
     dfi.export(styled, output_path, table_conversion="selenium", max_rows=-1)
+    return output_path
+
+
+def plot_histogram(data: pd.DataFrame):
+    plt.figure(figsize=(8, 6))
+    sns.histplot(data['% Change'], bins=100, kde=True)
+    plt.title('Distribution of % Change')
+    plt.xlabel('% Change')
+    plt.ylabel('Frequency')
+    output_path = f"output/images/top10-theme-positions-histogram.png"
+
+    plt.savefig(output_path)
     return output_path
 
 
@@ -111,7 +140,7 @@ def write_mail(data: Dict):
           <body>
             <p>Hi zusammen, <br><br>
                 
-                anbei eine Übersicht über die Performance aktueller Zukunftsthemen und struktureller Themen:
+                anbei eine Übersicht über die Performance verschiedener Themen-Investments, sortiert nach 6MO-Performance:
                 <br><br>
                 {theme_images_html}
                 <br><br>
